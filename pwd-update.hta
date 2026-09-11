@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <title>SMB Dual Admin Password Updater</title>
+    <hta:application
+        id="pwdApp"
+        applicationname="PwdUpdate"
+        border="thin"
+        caption="yes"
+        showintaskbar="yes"
+        singleinstance="yes"
+        sysmenu="yes"
+        windowstate="normal">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body onload="initAppWindow()">
+    <div class="header">
+        <div class="header-top">
+            <div>
+                <h2>Đổi Mật Khẩu 2 Admin Máy Trạm (Quy Trình Chuẩn & Xác Thực)</h2>
+                <p class="subtitle">Đăng nhập Admin 1 -> Đổi Admin 2 -> Đổi Admin 1 -> Verify Cả 2 -> Multi-Sessions</p>
+            </div>
+            <div class="session-header-ctrl">
+                <span id="activeSessionName" class="active-sess-label" onclick="renameActiveSession()" title="Bấm để đổi tên phiên làm việc">Phiên: (Mới / Chưa lưu) ✏️</span>
+                <button class="btn btn-secondary btn-sm" onclick="openSessionPicker()">📂 Quản Lý Phiên (Picker)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Banner khôi phục nhanh -->
+    <div id="sessionBanner" class="session-banner" style="display:none;">
+        <span id="sessionInfoText">Có phiên làm việc trước đã lưu...</span>
+        <div class="session-btn-group">
+            <button class="btn btn-primary btn-sm" onclick="openSessionPicker()">Mở Session Picker</button>
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('sessionBanner').style.display='none'">Đóng</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Panel nhập liệu -->
+        <div class="panel form-panel">
+            <div class="section-title"><span class="step-badge step-1">1</span>Tài Khoản Admin 1 (Dùng Đăng Nhập)</div>
+            <div class="field">
+                <label>Tên Admin 1:</label>
+                <input type="text" id="admin1User" value="Administrator" placeholder="Tên user admin 1">
+            </div>
+            <div class="grid-2">
+                <div class="field">
+                    <label>Mật Khẩu HIỆN TẠI:</label>
+                    <input type="password" id="admin1PassCur" placeholder="Pass hiện tại">
+                </div>
+                <div class="field">
+                    <label>Mật Khẩu MỚI:</label>
+                    <input type="password" id="admin1PassNew" placeholder="Pass mới">
+                </div>
+            </div>
+
+            <div class="section-title" style="margin-top:10px;"><span class="step-badge step-2">2</span>Tài Khoản Admin 2 (User Cần Đổi)</div>
+            <div class="grid-2">
+                <div class="field">
+                    <label>Tên Admin 2 (Tùy chọn):</label>
+                    <input type="text" id="admin2User" placeholder="Để trống nếu không đổi">
+                </div>
+                <div class="field">
+                    <label>Mật Khẩu MỚI (Admin 2):</label>
+                    <input type="password" id="admin2PassNew" placeholder="Pass mới (nếu đổi)">
+                </div>
+            </div>
+
+            <div class="section-title" style="margin-top:10px;"><span class="step-badge step-3">3</span>Dải IP Máy Trạm & Cấu Hình</div>
+            <div class="field">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                    <label style="margin-bottom:0;">Nhập IP đơn hoặc dải (hoặc nhập từ CSV):</label>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('csvFilePicker').click()">📥 Nhập File CSV</button>
+                </div>
+                <input type="file" id="csvFilePicker" accept=".csv,.txt" style="display:none;" onchange="handleCSVFileSelect(this)">
+                <textarea id="ipInput" rows="3" placeholder="192.168.1.10-20&#10;192.168.2.100&#10;192.168.3.5-192.168.3.15"></textarea>
+            </div>
+
+            <div class="field">
+                <label>Số luồng đồng thời:</label>
+                <input type="number" id="concurrency" value="3" min="1" max="10">
+            </div>
+
+            <div class="section-title" style="margin-top:10px;"><span class="step-badge step-4">4</span>Phương Thức Kết Nối</div>
+            <div class="field">
+                <select id="protocolMethod">
+                    <option value="adsi">1. ADSI / SMB (Port 445 - Direct SAM - Khuyên dùng)</option>
+                    <option value="wmi" selected>2. WMI RPC (Port 135 - Native Windows)</option>
+                    <option value="ssh">3. SSH (Port 22 - OpenSSH / PuTTY)</option>
+                    <option value="schtasks">4. Schtasks (Port 135/445 - Quyền SYSTEM - Tức thời)</option>
+                </select>
+            </div>
+
+            <div class="actions">
+                <button id="btnStart" class="btn btn-primary" onclick="startBatch()">🚀 Bắt Đầu Đổi</button>
+                <button id="btnVerifyNew" class="btn btn-success" onclick="startVerifyOnlyBatch()">🔍 Chỉ Test Pass</button>
+                <button id="btnPause" class="btn btn-warning" onclick="pauseBatch()" disabled>⏸️ Tạm Dừng</button>
+                <button id="btnStop" class="btn btn-danger" onclick="stopBatch()" disabled>⏹️ Dừng Hẳn</button>
+                <button id="btnRetryFailed" class="btn btn-secondary" onclick="retryFailed()">⚡ Thử Lại Lỗi</button>
+                <button id="btnExport" class="btn btn-secondary" onclick="exportCSVManual(queue)">📥 Xuất CSV</button>
+            </div>
+        </div>
+
+        <!-- Panel theo dõi & Dashboard -->
+        <div class="panel monitor-panel">
+            <div class="progress-box">
+                <div class="progress-header">
+                    <span>Tiến độ hoàn thành:</span>
+                    <span id="progressText">0% (0/0)</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div id="progressBarFill" class="progress-bar-fill"></div>
+                </div>
+            </div>
+
+            <div class="stats-bar">
+                <div class="stat-card">
+                    <span class="stat-val" id="cntTotal">0</span>
+                    <span class="stat-lbl">Tổng Máy</span>
+                </div>
+                <div class="stat-card stat-success">
+                    <span class="stat-val" id="cntSuccess">0</span>
+                    <span class="stat-lbl">Đã Hoàn Tất</span>
+                </div>
+                <div class="stat-card stat-waiting">
+                    <span class="stat-val" id="cntWaiting">0</span>
+                    <span class="stat-lbl">Chờ Xử Lý</span>
+                </div>
+                <div class="stat-card stat-failed">
+                    <span class="stat-val" id="cntFailed">0</span>
+                    <span class="stat-lbl">Thất Bại</span>
+                </div>
+            </div>
+
+            <div class="filter-bar">
+                <div class="filter-pills">
+                    <span class="filter-pill active" data-filter="all" onclick="setFilter('all')">Tất cả</span>
+                    <span class="filter-pill" data-filter="success" onclick="setFilter('success')">Đã xong</span>
+                    <span class="filter-pill" data-filter="failed" onclick="setFilter('failed')">Thất bại</span>
+                    <span class="filter-pill" data-filter="pending" onclick="setFilter('pending')">Chờ xử lý</span>
+                </div>
+                <div class="csv-indicator">
+                    <span id="csvStatusPath" class="csv-ok">Auto-Save: BẬT</span>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table id="resultTable">
+                    <thead>
+                        <tr>
+                            <th style="width:125px;">Địa chỉ IP</th>
+                            <th style="width:110px;">Trạng Thái</th>
+                            <th style="width:65px;text-align:center;">Lần Thử</th>
+                            <th>Kết Quả Đổi & Xác Thực (Verification)</th>
+                            <th style="width:85px;text-align:center;">Thao Tác</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        <tr><td colspan="5" style="text-align:center;color:#888;">Chưa có dữ liệu. Nhập thông tin và bấm Bắt Đầu.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Session Picker -->
+    <div id="sessionModal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Danh Sách Các Phiên Làm Việc (Session Picker)</h3>
+                <span class="modal-close" onclick="closeSessionPicker()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <table class="session-table">
+                    <thead>
+                        <tr>
+                            <th>Tên Phiên</th>
+                            <th width="110">Tiến Độ</th>
+                            <th width="115">Lần Lưu Cuối</th>
+                            <th>Dải IP</th>
+                            <th width="190" style="text-align:right;">Thao Tác</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sessionListBody"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="startNewSession()">+ Tạo Phiên Mới</button>
+                <button class="btn btn-secondary" onclick="closeSessionPicker()">Đóng</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="src/ui/ui.js"></script>
+    <script src="src/services/session.js"></script>
+    <script src="src/services/csv.js"></script>
+    <script src="src/protocols/protocol_ps.js"></script>
+    <script src="src/protocols/protocol.js"></script>
+    <script src="src/core/app.js"></script>
+</body>
+</html>
