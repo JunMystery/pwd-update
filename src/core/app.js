@@ -35,7 +35,11 @@ function mergeIPsIntoQueue(ips) {
             added++;
         }
     }
-    if (added > 0) { renderTable(); updateStats(); syncRootCSV(queue); saveSessionState(queue); }
+    if (added > 0) {
+        renderTable(); updateStats();
+        try { syncRootCSV(queue); } catch (eCSV) {}
+        try { saveSessionState(queue); } catch (eSess) {}
+    }
     return added;
 }
 
@@ -49,22 +53,37 @@ function setBatchRunningUI(running) {
     if (bStop) bStop.disabled = !running;
 }
 
-function startBatch() {
+function getValidatedCredentials(isVerify) {
     var a1User = document.getElementById('admin1User').value.replace(/^\s+|\s+$/g, '');
     var a1Cur = document.getElementById('admin1PassCur').value;
     var a1New = document.getElementById('admin1PassNew').value;
+    var a1ConfEl = document.getElementById('admin1PassConfirm');
+    var a1Conf = a1ConfEl ? a1ConfEl.value : a1New;
     var a2User = document.getElementById('admin2User').value.replace(/^\s+|\s+$/g, '');
     var a2New = document.getElementById('admin2PassNew').value;
+    var a2ConfEl = document.getElementById('admin2PassConfirm');
+    var a2Conf = a2ConfEl ? a2ConfEl.value : a2New;
 
-    if (!a1User || !a1Cur || !a1New) { alert('Vui long nhap day du Admin 1: Ten User, Pass cu, va Pass moi!'); return; }
-    if (a2User && !a2New) { alert('Neu nhap Admin 2, vui long nhap Mat khau moi cho Admin 2 (hoac de trong neu chi doi Admin 1)!'); return; }
+    if (!a1User || (!isVerify && !a1Cur) || !a1New) {
+        alert(isVerify ? 'Vui lòng nhập Admin 1: Tên User và Pass MỚI!' : 'Vui lòng nhập đầy đủ Admin 1: Tên User, Pass cũ, và Pass mới!');
+        return null;
+    }
+    if (a1New !== a1Conf) { alert('Mật khẩu MỚI của Admin 1 không khớp với mật khẩu xác nhận lại!'); return null; }
+    if (a2User && !a2New) { alert('Nếu nhập Admin 2, vui lòng nhập Pass mới cho Admin 2!'); return null; }
+    if (a2New && a2New !== a2Conf) { alert('Mật khẩu MỚI của Admin 2 không khớp với mật khẩu xác nhận lại!'); return null; }
+    return { a1User: a1User, a1Cur: a1Cur, a1New: a1New, a2User: a2User, a2New: a2New };
+}
 
+function startBatch() {
+    if (!getValidatedCredentials(false)) return;
     var ips = parseIPs(document.getElementById('ipInput').value);
     if (ips.length > 0) mergeIPsIntoQueue(ips);
     if (!queue || queue.length === 0) { alert('Khong tim thay IP hop le! Vui long nhap IP hoac nhap file CSV.'); return; }
 
     isVerifyOnlyMode = false; isPaused = false;
-    renderTable(); updateStats(); syncRootCSV(queue); saveSessionState(queue);
+    renderTable(); updateStats();
+    try { syncRootCSV(queue); } catch (eCSV) {}
+    try { saveSessionState(queue); } catch (eSess) {}
     setBatchRunningUI(true);
 
     if (loopTimer) clearInterval(loopTimer);
@@ -72,21 +91,16 @@ function startBatch() {
 
     if (csvAutoTimer) clearInterval(csvAutoTimer);
     csvAutoTimer = setInterval(function() {
-        if (isRunning && !isPaused && queue && queue.length > 0) syncRootCSV(queue);
+        if (isRunning && !isPaused && queue && queue.length > 0) {
+            try { syncRootCSV(queue); } catch (e) {}
+        }
     }, 5000);
 
     tickQueue();
 }
 
 function startVerifyOnlyBatch() {
-    var a1User = document.getElementById('admin1User').value.replace(/^\s+|\s+$/g, '');
-    var a1New = document.getElementById('admin1PassNew').value;
-    var a2User = document.getElementById('admin2User').value.replace(/^\s+|\s+$/g, '');
-    var a2New = document.getElementById('admin2PassNew').value;
-
-    if (!a1User || !a1New) { alert('Vui long nhap Admin 1: Ten User va Mat khau MOI can kiem tra!'); return; }
-    if (a2User && !a2New) { alert('Neu co Admin 2, vui long nhap Mat khau MOI Admin 2 can kiem tra!'); return; }
-
+    if (!getValidatedCredentials(true)) return;
     var ips = parseIPs(document.getElementById('ipInput').value);
     if (ips.length > 0) mergeIPsIntoQueue(ips);
     if (!queue || queue.length === 0) { alert('Khong tim thay IP de test!'); return; }
@@ -99,11 +113,13 @@ function startVerifyOnlyBatch() {
         }
         queue[k].status = 'pending';
         queue[k].attempts = 0;
-        queue[k].message = 'Cho test pass moi...';
+        queue[k].message = 'Cho test pass moi qua SSH...';
     }
     activeWorkers = 0;
     if (typeof setFilter === 'function') setFilter('all');
-    renderTable(); updateStats(); syncRootCSV(queue); saveSessionState(queue);
+    renderTable(); updateStats();
+    try { syncRootCSV(queue); } catch (eCSV) {}
+    try { saveSessionState(queue); } catch (eSess) {}
     setBatchRunningUI(true);
 
     if (loopTimer) clearInterval(loopTimer);
@@ -121,13 +137,24 @@ function tickQueue() {
     var a2User = document.getElementById('admin2User').value;
     var a2New = document.getElementById('admin2PassNew').value;
     var maxConcurrency = parseInt(document.getElementById('concurrency').value, 10) || 3;
-    var methodEl = document.getElementById('protocolMethod');
-    var method = methodEl ? methodEl.value : 'adsi';
     var now = new Date().getTime();
 
     for (var i = 0; i < queue.length; i++) {
         var item = queue[i];
         if (item.status === 'checking' && item.exec) {
+            // Watchdog: Timeout 45 giay de tranh tien trinh SSH treo vo han tren SMB/mang cham
+            if (item.startTime && (now - item.startTime > 45000)) {
+                try { item.exec.Terminate(); } catch (eTO) {}
+                item.exec = null;
+                item.lastCheck = now;
+                item.status = 'failed';
+                item.message = 'Timeout: Qua thoi gian cho SSH (45s)';
+                renderTable(); updateStats();
+                try { syncRootCSV(queue); } catch (eCSV) {}
+                try { saveSessionState(queue); } catch (eSess) {}
+                continue;
+            }
+
             var isFinished = false;
             try { isFinished = (item.exec.Status !== 0); } catch (e) { isFinished = true; }
             if (isFinished) {
@@ -138,7 +165,9 @@ function tickQueue() {
                 item.lastCheck = now;
                 var combinedOut = (rawOut && rawOut.replace(/^\s+|\s+$/g, '')) || (rawErr ? ('RES:FAIL:Loi: ' + rawErr.replace(/[\r\n]+/g, ' ')) : '');
                 handleResult(item, combinedOut);
-                renderTable(); updateStats(); syncRootCSV(queue); saveSessionState(queue);
+                renderTable(); updateStats();
+                try { syncRootCSV(queue); } catch (eCSV) {}
+                try { saveSessionState(queue); } catch (eSess) {}
             }
         }
     }
@@ -153,7 +182,8 @@ function tickQueue() {
     if (currentActive === 0 && remainingPending === 0) {
         setBatchRunningUI(false);
         if (loopTimer) clearInterval(loopTimer);
-        syncRootCSV(queue); saveSessionState(queue);
+        try { syncRootCSV(queue); } catch (eCSV) {}
+        try { saveSessionState(queue); } catch (eSess) {}
         return;
     }
 
@@ -162,15 +192,15 @@ function tickQueue() {
         var it = queue[j];
         if (it.status !== 'pending') continue;
 
-        var methodTag = (method === 'ssh') ? 'SSH' : ((method === 'wmi') ? 'WMI' : ((method === 'schtasks') ? 'SCHTASKS' : 'ADSI'));
-        var actionPrefix = isVerifyOnlyMode ? 'Dang test pass moi' : 'Dang chay';
+        var actionPrefix = isVerifyOnlyMode ? 'Dang test pass moi' : 'Dang doi pass';
         it.status = 'checking';
+        it.startTime = now;
         it.attempts++;
-        it.message = actionPrefix + ' [' + methodTag + ']... (Lan ' + it.attempts + ')';
+        it.message = actionPrefix + ' [SSH]... (Lan ' + it.attempts + ')';
         renderTable(); updateStats();
 
         try {
-            var cmd = buildDualAdminCommand(it.ip, a1User, a1Cur, a1New, a2User, a2New, method, isVerifyOnlyMode);
+            var cmd = buildDualAdminCommand(it.ip, a1User, a1Cur, a1New, a2User, a2New, 'ssh', isVerifyOnlyMode);
             it.exec = wsh.Exec(cmd);
             activeWorkers++;
         } catch (err) {
@@ -201,7 +231,8 @@ function pauseBatch() {
         btn.innerHTML = isPaused ? 'Tiep Tuc' : 'Tam Dung';
         btn.className = isPaused ? 'btn btn-primary' : 'btn btn-warning';
     }
-    syncRootCSV(queue); saveSessionState(queue);
+    try { syncRootCSV(queue); } catch (eCSV) {}
+    try { saveSessionState(queue); } catch (eSess) {}
 }
 
 function stopBatch() {
@@ -222,7 +253,19 @@ function stopBatch() {
     }
     activeWorkers = 0;
     setBatchRunningUI(false);
-    syncRootCSV(queue); saveSessionState(queue); renderTable(); updateStats();
+    try { syncRootCSV(queue); } catch (eCSV) {}
+    try { saveSessionState(queue); } catch (eSess) {}
+    renderTable(); updateStats();
+}
+
+function restartQueueLoop() {
+    if (!isRunning) {
+        isPaused = false;
+        setBatchRunningUI(true);
+        if (loopTimer) clearInterval(loopTimer);
+        loopTimer = setInterval(tickQueue, 500);
+    }
+    if (!isPaused) tickQueue();
 }
 
 function retryItem(idx) {
@@ -233,13 +276,7 @@ function retryItem(idx) {
         it.status = 'pending';
         it.message = 'San sang thu lai...';
         renderTable(); updateStats();
-        if (!isRunning) {
-            isPaused = false;
-            setBatchRunningUI(true);
-            if (loopTimer) clearInterval(loopTimer);
-            loopTimer = setInterval(tickQueue, 500);
-        }
-        if (!isPaused) tickQueue();
+        restartQueueLoop();
     }
 }
 
@@ -256,13 +293,5 @@ function retryFailed() {
         }
     }
     renderTable(); updateStats();
-    if (count > 0) {
-        if (!isRunning) {
-            isPaused = false;
-            setBatchRunningUI(true);
-            if (loopTimer) clearInterval(loopTimer);
-            loopTimer = setInterval(tickQueue, 500);
-        }
-        if (!isPaused) tickQueue();
-    }
+    if (count > 0) restartQueueLoop();
 }

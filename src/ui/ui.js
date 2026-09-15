@@ -1,5 +1,58 @@
 var currentFilter = 'all';
 
+function getAppDir() {
+    try {
+        var app = (typeof document !== 'undefined' && document.getElementById && document.getElementById('pwdApp')) || (typeof pwdApp !== 'undefined' ? pwdApp : null);
+        var cmd = app && app.commandLine;
+        if (cmd) {
+            var m = cmd.match(/"([^"]+\.hta)"/i) || cmd.match(/([a-zA-Z]:\\[^\s"]+\.hta)/i) || cmd.match(/(\\\\[^\s"]+\.hta)/i);
+            if (m && m[1]) {
+                var p = m[1].replace(/\//g, '\\');
+                var last = p.lastIndexOf('\\');
+                if (last > 0) return p.substring(0, last);
+            }
+        }
+    } catch (eCmd) {}
+
+    try {
+        var loc = (typeof window !== 'undefined' && window.location) ? window.location : null;
+        if (loc) {
+            var host = (loc.hostname || loc.host || '').replace(/^\\+/, '');
+            var path = (loc.pathname || '').replace(/\//g, '\\');
+            try { path = unescape(path); } catch (eUn) {}
+            if (host && path.indexOf('\\' + host) === -1 && path.indexOf(host) === -1) {
+                if (path.charAt(0) !== '\\') path = '\\' + path;
+                var full = '\\\\' + host + path;
+                var lastSlash = full.lastIndexOf('\\');
+                return lastSlash > 0 ? full.substring(0, lastSlash) : full;
+            }
+            if (path) {
+                if (/^\\([a-zA-Z]:\\)/.test(path)) path = path.substring(1);
+                else if (!/^\\\\/.test(path) && /^\\/.test(path)) path = '\\' + path;
+                var lastS = path.lastIndexOf('\\');
+                return lastS > 0 ? path.substring(0, lastS) : path;
+            }
+        }
+    } catch (eLoc) {}
+
+    try {
+        var url = (typeof document !== 'undefined' && document.URL) || (loc && loc.href) || '';
+        try { url = unescape(url); } catch (eUrl) {}
+        if (url) {
+            var mUrl = url.match(/^file:(?:\/{2,4})(.*)$/i);
+            if (mUrl && mUrl[1]) {
+                var raw = mUrl[1].replace(/\//g, '\\');
+                var uncPrefix = /^[a-zA-Z]:\\/.test(raw) ? '' : '\\\\';
+                var fullP = uncPrefix + raw.replace(/^\\+/, '');
+                var lPos = fullP.lastIndexOf('\\');
+                return lPos > 0 ? fullP.substring(0, lPos) : fullP;
+            }
+        }
+    } catch (eH) {}
+
+    return '.';
+}
+
 function initAppWindow() {
     try {
         if (window.resizeTo) {

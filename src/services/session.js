@@ -1,13 +1,11 @@
 var fso = new ActiveXObject('Scripting.FileSystemObject');
+var wsh = new ActiveXObject('WScript.Shell');
 var currentSessionId = null;
 var currentSessionName = '';
 
 function getSessionsDir() {
     try {
-        var loc = unescape(window.location.pathname);
-        if (loc.indexOf('/') === 0) loc = loc.substring(1);
-        loc = loc.replace(/\//g, '\\');
-        var baseDir = fso.GetParentFolderName(loc);
+        var baseDir = (typeof getAppDir === 'function') ? getAppDir() : '.';
         var dataDir = baseDir + '\\data';
         var sessDir = dataDir + '\\sessions';
         if (!fso.FolderExists(dataDir)) fso.CreateFolder(dataDir);
@@ -28,9 +26,15 @@ function getSessionsDir() {
         }
         return sessDir;
     } catch (e) {
-        var defDir = fso.GetAbsolutePathName('.') + '\\data\\sessions';
-        if (!fso.FolderExists(defDir)) fso.CreateFolder(defDir);
-        return defDir;
+        var rootTemp = wsh.ExpandEnvironmentStrings('%TEMP%') + '\\pwd_update_data';
+        var defDir = rootTemp + '\\sessions';
+        try {
+            if (!fso.FolderExists(rootTemp)) fso.CreateFolder(rootTemp);
+            if (!fso.FolderExists(defDir)) fso.CreateFolder(defDir);
+            return defDir;
+        } catch (e2) {
+            return wsh.ExpandEnvironmentStrings('%TEMP%');
+        }
     }
 }
 
@@ -150,9 +154,15 @@ function resumeSession(sessionId) {
 
         if (data.admin1User) document.getElementById('admin1User').value = data.admin1User;
         if (data.admin1PassCur !== undefined) document.getElementById('admin1PassCur').value = data.admin1PassCur;
-        if (data.admin1PassNew !== undefined) document.getElementById('admin1PassNew').value = data.admin1PassNew;
+        if (data.admin1PassNew !== undefined) {
+            document.getElementById('admin1PassNew').value = data.admin1PassNew;
+            if (document.getElementById('admin1PassConfirm')) document.getElementById('admin1PassConfirm').value = data.admin1PassNew;
+        }
         if (data.admin2User) document.getElementById('admin2User').value = data.admin2User;
-        if (data.admin2PassNew !== undefined) document.getElementById('admin2PassNew').value = data.admin2PassNew;
+        if (data.admin2PassNew !== undefined) {
+            document.getElementById('admin2PassNew').value = data.admin2PassNew;
+            if (document.getElementById('admin2PassConfirm')) document.getElementById('admin2PassConfirm').value = data.admin2PassNew;
+        }
         if (data.ipInput) document.getElementById('ipInput').value = data.ipInput;
         if (data.concurrency) document.getElementById('concurrency').value = data.concurrency;
         if (data.protocolMethod && document.getElementById('protocolMethod')) {

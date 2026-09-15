@@ -1,4 +1,5 @@
 var fso = new ActiveXObject('Scripting.FileSystemObject');
+var wsh = new ActiveXObject('WScript.Shell');
 var lastCSVAutoSaveTime = null;
 
 function getRootCSVPath(altName) {
@@ -13,12 +14,10 @@ function getRootCSVPath(altName) {
         }
     }
     try {
-        var loc = unescape(window.location.pathname);
-        if (loc.indexOf('/') === 0) loc = loc.substring(1);
-        loc = loc.replace(/\//g, '\\');
-        return fso.GetParentFolderName(loc) + '\\' + fname;
+        var baseDir = (typeof getAppDir === 'function') ? getAppDir() : '.';
+        return baseDir + '\\' + fname;
     } catch (e) {
-        return fso.GetAbsolutePathName('.') + '\\' + fname;
+        return wsh.ExpandEnvironmentStrings('%TEMP%') + '\\' + fname;
     }
 }
 
@@ -67,8 +66,19 @@ function syncRootCSV(queue) {
                 updateCSVIndicator('Auto-Save: ' + fso.GetFileName(backupPath) + ' (File chinh bi khoa)', true);
             }
         } catch (e2) {
-            if (typeof updateCSVIndicator === 'function') {
-                updateCSVIndicator('Auto-Save: Loi ghi file (' + err.message + ')', true);
+            try {
+                var tempPath = wsh.ExpandEnvironmentStrings('%TEMP%') + '\\' + fso.GetFileName(targetPath);
+                var tfile = fso.CreateTextFile(tempPath, true, true);
+                tfile.Write(content);
+                tfile.Close();
+                lastCSVAutoSaveTime = now;
+                if (typeof updateCSVIndicator === 'function') {
+                    updateCSVIndicator('Auto-Save: ' + tempPath + ' (SMB chi doc)', true);
+                }
+            } catch (e3) {
+                if (typeof updateCSVIndicator === 'function') {
+                    updateCSVIndicator('Auto-Save: Loi ghi file (' + err.message + ')', true);
+                }
             }
         }
     }

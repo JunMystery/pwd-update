@@ -20,7 +20,7 @@
         <div class="header-top">
             <div>
                 <h2>Đổi Mật Khẩu 2 Admin Máy Trạm (Quy Trình Chuẩn & Xác Thực)</h2>
-                <p class="subtitle">Đăng nhập Admin 1 -> Đổi Admin 2 -> Đổi Admin 1 -> Verify Cả 2 -> Multi-Sessions</p>
+                <p class="subtitle">Đăng nhập Admin 1 -> Đổi Admin 2 -> Đổi Admin 1 -> Verify Cả 2 qua SSH [Port 22]</p>
             </div>
             <div class="session-header-ctrl">
                 <span id="activeSessionName" class="active-sess-label" onclick="renameActiveSession()" title="Bấm để đổi tên phiên làm việc">Phiên: (Mới / Chưa lưu) ✏️</span>
@@ -46,26 +46,34 @@
                 <label>Tên Admin 1:</label>
                 <input type="text" id="admin1User" value="Administrator" placeholder="Tên user admin 1">
             </div>
+            <div class="field">
+                <label>Mật Khẩu HIỆN TẠI:</label>
+                <input type="password" id="admin1PassCur" placeholder="Pass hiện tại">
+            </div>
             <div class="grid-2">
-                <div class="field">
-                    <label>Mật Khẩu HIỆN TẠI:</label>
-                    <input type="password" id="admin1PassCur" placeholder="Pass hiện tại">
-                </div>
                 <div class="field">
                     <label>Mật Khẩu MỚI:</label>
                     <input type="password" id="admin1PassNew" placeholder="Pass mới">
                 </div>
+                <div class="field">
+                    <label>Xác Nhận Pass MỚI:</label>
+                    <input type="password" id="admin1PassConfirm" placeholder="Nhập lại pass mới">
+                </div>
             </div>
 
             <div class="section-title" style="margin-top:10px;"><span class="step-badge step-2">2</span>Tài Khoản Admin 2 (User Cần Đổi)</div>
+            <div class="field">
+                <label>Tên Admin 2 (Tùy chọn):</label>
+                <input type="text" id="admin2User" placeholder="Để trống nếu không đổi">
+            </div>
             <div class="grid-2">
-                <div class="field">
-                    <label>Tên Admin 2 (Tùy chọn):</label>
-                    <input type="text" id="admin2User" placeholder="Để trống nếu không đổi">
-                </div>
                 <div class="field">
                     <label>Mật Khẩu MỚI (Admin 2):</label>
                     <input type="password" id="admin2PassNew" placeholder="Pass mới (nếu đổi)">
+                </div>
+                <div class="field">
+                    <label>Xác Nhận Pass MỚI:</label>
+                    <input type="password" id="admin2PassConfirm" placeholder="Nhập lại pass mới">
                 </div>
             </div>
 
@@ -85,13 +93,9 @@
             </div>
 
             <div class="section-title" style="margin-top:10px;"><span class="step-badge step-4">4</span>Phương Thức Kết Nối</div>
-            <div class="field">
-                <select id="protocolMethod">
-                    <option value="adsi">1. ADSI / SMB (Port 445 - Direct SAM - Khuyên dùng)</option>
-                    <option value="wmi" selected>2. WMI RPC (Port 135 - Native Windows)</option>
-                    <option value="ssh">3. SSH (Port 22 - OpenSSH / PuTTY)</option>
-                    <option value="schtasks">4. Schtasks (Port 135/445 - Quyền SYSTEM - Tức thời)</option>
-                </select>
+            <div class="field" style="padding:6px 10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:11px;color:#166534;font-weight:600;">
+                🔒 SSH (Port 22) - OpenSSH Client & askpass (Cố định)
+                <input type="hidden" id="protocolMethod" value="ssh">
             </div>
 
             <div class="actions">
@@ -197,7 +201,6 @@
     <script src="src/ui/ui.js"></script>
     <script src="src/services/session.js"></script>
     <script src="src/services/csv.js"></script>
-    <script src="src/protocols/protocol_ps.js"></script>
     <script src="src/protocols/protocol.js"></script>
     <script src="src/core/app.js"></script>
 </body>
